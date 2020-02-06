@@ -44,6 +44,33 @@ class Address(db.Model):
     def __repr__(self):
         return '<Address %r>' % self.id
 
+
+# Queries
+
+def build_count_query(postcodes):
+    # Base statement, sans postcodes
+    query = db.session.query(Address)
+    if postcodes != None:
+        # Postocdes given? Add them!
+        query = query.filter(Address.postcode.in_(postcodes))
+
+    return query.statement.with_only_columns([
+        db.func.count()]).order_by(None)
+
+
+def build_distribution_query(postcodes):
+    # SQLite's way of grabbing a year from datetime
+    year_func = db.func.strftime('%Y', Address.added_on)
+
+    query = db.select([year_func, db.func.count(year_func)]
+                      ).group_by(year_func).order_by(year_func)
+    if postcodes != None:
+        # Postocdes given? Add them!
+        query = query.where(Address.postcode.in_(postcodes))
+
+    return query
+
+
 # Endpoints
 
 
@@ -56,17 +83,10 @@ def index():
 @app.route('/count/', defaults={'postcodes': None})
 @app.route('/count/<int_list:postcodes>')
 def count(postcodes):
-    if postcodes != None:
-        # Postocdes given?
-        count_results = db.session.execute(
-            db.session.query(Address)
-            .filter(Address.postcode.in_(postcodes))
-            .statement.with_only_columns([db.func.count()]).order_by(None)
-        ).scalar()
-    else:
-        # No postocdes, show everything
-        count_results = db.session.query(Address).count()
+    # Fetch results from our query
+    count_results = db.session.execute(build_count_query(postcodes)).scalar()
 
+    # Render some json
     return app.response_class(
         response=json.dumps({'count': count_results}),
         status=200,
@@ -75,27 +95,11 @@ def count(postcodes):
 
 
 # An endpoint that shows the distribution of years in which buildings were added to the dataset
-@app.route('/distibution/', defaults={'postcodes': None})
-@app.route('/distibution/<int_list:postcodes>')
+@app.route('/distribution/', defaults={'postcodes': None})
+@app.route('/distribution/<int_list:postcodes>')
 def distibution(postcodes):
-  # SQLite's way of grabbing a year from datetime
-    year_func = db.func.strftime('%Y', Address.added_on)
-
-    if postcodes != None:
-        # Postocdes given?
-        distribution_results = db.session.execute(
-            db.select([year_func, db.func.count(year_func)])
-            .where(Address.postcode.in_(postcodes))
-            .group_by(year_func)
-            .order_by(year_func)
-        )
-    else:
-        # No postocdes, show everything
-        distribution_results = db.session.execute(
-            db.select([year_func, db.func.count(year_func)])
-            .group_by(year_func)
-            .order_by(year_func)
-        )
+    distribution_results = db.session.execute(
+        build_distribution_query(postcodes))
 
     # Map into correct structure for serialization
     response = [{rowproxy['strftime_1']: rowproxy['count_1']}
@@ -109,4 +113,5 @@ def distibution(postcodes):
 
 
 if __name__ == '__main__':
+    init_db()
     app.run()

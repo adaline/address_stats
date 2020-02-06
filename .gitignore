@@ -1,4 +1,4 @@
-data/database.sqlite
+data/*.sqlite
 .vscode
 env
 __pycache__/
